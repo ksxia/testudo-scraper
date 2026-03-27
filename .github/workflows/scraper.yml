@@ -39,7 +39,9 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add all_seat_counts.csv
           
-          # Checks for changes, commits them, and pushes
+          # 1. Track the entire data folder instead of a single file
+          git add data/
+          
+          # 2. Check for changes, commit, pull any updates from GitHub, and push
           git diff --quiet && git diff --staged --quiet || (git commit -m "Automated update: Testudo seat counts" && git pull --rebase origin main && git push)
