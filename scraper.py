@@ -13,9 +13,18 @@ WATCHLIST = ["CMSC216", "MATH141", "CMSC132"] # Add the classes you are sniping 
 BASE_URL = f"https://app.testudo.umd.edu/soc/{TERM}"
 SECTIONS_URL = f"https://app.testudo.umd.edu/soc/{TERM}/sections?courseIds="
 
-# Forces the CSV to save in the exact same directory as this script
+# --- DYNAMIC FILE PATHING ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CSV_FILE_PATH = os.path.join(SCRIPT_DIR, 'all_seat_counts.csv')
+DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
+
+def get_csv_path():
+    """Ensures the data directory exists and returns the path for today's CSV."""
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+    
+    # Creates a filename like '2026-03-27.csv'
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    return os.path.join(DATA_DIR, f"{current_date}.csv")
 
 # Masking our script to look like a normal Chrome browser executing an AJAX call
 HEADERS = {
@@ -56,13 +65,14 @@ def get_department_prefixes():
     return prefixes
 
 def save_to_csv(data):
-    """Saves a batch of data to the CSV file."""
     if not data:
         return 
         
-    file_exists = os.path.isfile(CSV_FILE_PATH)
+    target_path = get_csv_path() # <--- Use the function here
+    file_exists = os.path.isfile(target_path)
     
-    with open(CSV_FILE_PATH, mode='a', newline='', encoding='utf-8') as file:
+    with open(target_path, mode='a', newline='', encoding='utf-8') as file:
+        # ... rest of your code ...
         writer = csv.writer(file)
         if not file_exists:
             writer.writerow(['Timestamp', 'Course', 'Section', 'Instructor', 'Total_Seats', 'Open_Seats', 'Waitlist'])
@@ -136,7 +146,7 @@ if __name__ == "__main__":
     batch_timestamp = start_time_obj.strftime("%Y-%m-%d %H:%M:%S")
     
     print(f"Starting university-wide scrape at {batch_timestamp}")
-    print(f"Data will be saved to: {CSV_FILE_PATH}\n")
+    print(f"Data will be saved to the 'data/' directory.\n")
     
     # 1. SEND START ALERT -> Logs Channel
     send_discord_alert(f"▶️ **Testudo Scraper Started** at {batch_timestamp}", "log")
