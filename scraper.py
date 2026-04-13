@@ -8,7 +8,19 @@ from datetime import datetime
 
 # --- CONFIGURATION ---
 TERM = "202608" # Fall 2026
-WATCHLIST = ["CMSC216", "MATH141", "CMSC132"] # Add the classes you are sniping here!
+
+# Dictionary mapping courses to the specific sections you want.
+# Note: If you leave a list empty like "CLASS": [], it will track ALL sections.
+WATCHLIST = {
+    "CMSC330": ["0201", "0203", "0205", "0301", "0304"],
+    "CMSC351": ["0101", "0301"],
+    "PSYC100": ["0401"],
+    "CHEM232": ["5131", "5132", "5331", "5332"],
+    "CHEM231": ["5421", "5422", "5441", "5442"],
+    "HACS200": ["0201"],
+    "MATH475": ["0201"],
+    "CMSC320": ["0201"]
+}
 
 BASE_URL = f"https://app.testudo.umd.edu/soc/{TERM}"
 SECTIONS_URL = f"https://app.testudo.umd.edu/soc/{TERM}/sections?courseIds="
@@ -22,11 +34,10 @@ def get_csv_path():
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
     
-    # Creates a filename like '2026-03-27.csv'
     current_date = datetime.now().strftime("%Y-%m-%d")
     return os.path.join(DATA_DIR, f"{current_date}.csv")
 
-# Masking our script to look like a normal Chrome browser executing an AJAX call
+# Masking our script to look like a normal Chrome browser
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "text/html, */*; q=0.01",
@@ -36,16 +47,15 @@ HEADERS = {
 # --- DISCORD ALERT FUNCTION ---
 def send_discord_alert(message, channel_type="alert"):
     """Routes a message to the correct Discord webhook channel."""
-    
     if channel_type == "log":
         webhook_url = os.environ.get('DISCORD_WEBHOOK_LOGS')
     elif channel_type == "error":
         webhook_url = os.environ.get('DISCORD_WEBHOOK_ERRORS')
-    else: # Defaults to the "alert" channel for seat openings
+    else: 
         webhook_url = os.environ.get('DISCORD_WEBHOOK_ALERTS')
         
     if not webhook_url:
-        return # Silently skip if the webhook is missing or not set up
+        return 
 
     try:
         requests.post(webhook_url, json={"content": message})
@@ -68,14 +78,13 @@ def save_to_csv(data):
     if not data:
         return 
         
-    target_path = get_csv_path() # <--- Use the function here
+    target_path = get_csv_path() 
     file_exists = os.path.isfile(target_path)
     
     with open(target_path, mode='a', newline='', encoding='utf-8') as file:
-        # ... rest of your code ...
         writer = csv.writer(file)
         if not file_exists:
-            writer.writerow(['Timestamp', 'Course', 'Section', 'Instructor', 'Total_Seats', 'Open_Seats', 'Waitlist'])
+            writer.writerow(['Timestamp', 'Course', 'Section', 'Instructor', 'Total_Seats', 'Open_Seats', 'Waitlist', 'Fetch_Time'])
         writer.writerows(data)
 
 def scrape_departments(prefixes, batch_timestamp):
@@ -87,7 +96,6 @@ def scrape_departments(prefixes, batch_timestamp):
         dept_url = f"{BASE_URL}/{prefix}"
         
         try:
-            # Step 1: Get all Course IDs (e.g., CMSC131, CMSC132)
             response = requests.get(dept_url, headers=HEADERS)
             soup = BeautifulSoup(response.text, 'html.parser')
             
@@ -100,7 +108,6 @@ def scrape_departments(prefixes, batch_timestamp):
                 
             dept_data = []
             
-            # Step 2: Hit the hidden AJAX endpoint for each course
             for course_id in course_ids:
                 ajax_url = f"{SECTIONS_URL}{course_id}"
                 ajax_response = requests.get(ajax_url, headers=HEADERS)
@@ -117,17 +124,21 @@ def scrape_departments(prefixes, batch_timestamp):
                     instructor_elem = section.find('span', class_='section-instructor')
                     instructor = instructor_elem.text.strip() if instructor_elem else "TBA"
                     
-                    dept_data.append([batch_timestamp, course_id, section_id, instructor, total_seats, open_seats, waitlist])
+                    fetch_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
-                    # --- THE SPECIFIC SEAT ALERT LOGIC ---
+                    dept_data.append([batch_timestamp, course_id, section_id, instructor, total_seats, open_seats, waitlist, fetch_time])
+                    
+                    # --- SEAT ALERT LOGIC ---
                     open_seats_int = int(open_seats) if open_seats.isdigit() else 0
-                    if course_id in WATCHLIST and open_seats_int > 0:
-                        send_discord_alert(f"🚨 **SEAT OPEN!** {course_id} (Sec {section_id}) has {open_seats_int} seats! Taught by: {instructor}")
+                    
+                    if course_id in WATCHLIST:
+                        # Check if the section list is empty (track all) OR if this specific section is in the list
+                        if not WATCHLIST[course_id] or section_id in WATCHLIST[course_id]:
+                            if open_seats_int > 0:
+                                send_discord_alert(f"<@&1493113652272955443> 🚨 **SEAT OPEN!** {course_id} (Sec {section_id}) has {open_seats_int} seats! Taught by: {instructor}")
                 
-                # Micro-delay between courses
                 time.sleep(0.1) 
                 
-            # Save this department's data immediately
             save_to_csv(dept_data)
             total_sections_scraped += len(dept_data)
             print(f"Saved {len(dept_data)} sections.")
@@ -135,7 +146,6 @@ def scrape_departments(prefixes, batch_timestamp):
         except Exception as e:
             print(f"Failed! Error: {e}")
             
-        # Delay before the next department to avoid IP bans
         time.sleep(1)
         
     return total_sections_scraped
@@ -148,29 +158,24 @@ if __name__ == "__main__":
     print(f"Starting university-wide scrape at {batch_timestamp}")
     print(f"Data will be saved to the 'data/' directory.\n")
     
-    # 1. SEND START ALERT -> Logs Channel
     send_discord_alert(f"▶️ **Testudo Scraper Started** at {batch_timestamp}", "log")
 
     try:
         prefixes = get_department_prefixes()
         print(f"Found {len(prefixes)} departments to scrape.\n")
         
-        # Run the massive loop, passing the fixed timestamp down
         total_saved = scrape_departments(prefixes, batch_timestamp)
         
-        # Calculate execution time
         end_time_obj = datetime.now()
+        end_time_str = end_time_obj.strftime("%Y-%m-%d %H:%M:%S")
         duration_mins = round((end_time_obj - start_time_obj).total_seconds() / 60, 2)
         
-        print(f"\nDone! Successfully scraped {total_saved} total sections in {duration_mins} minutes.")
-        
-        # 2. SEND SUCCESS ALERT -> Logs Channel
-        send_discord_alert(f"✅ **Testudo Scraper Finished!** Scraped {total_saved} sections in {duration_mins} minutes.", "log")
+        print(f"\nDone! Successfully scraped {total_saved} total sections at {end_time_str} in {duration_mins} minutes.")
+        send_discord_alert(f"✅ **Testudo Scraper Finished at {end_time_str}!** Scraped {total_saved} sections in {duration_mins} minutes.", "log")
         
     except Exception as e:
         error_msg = f"❌ **Scraper Crashed!** Error: {e}"
         print(f"Critical error: {e}")
         
-        # 3. SEND CRASH ALERT -> To BOTH Logs and Errors Channels
         send_discord_alert(error_msg, "log")
         send_discord_alert(error_msg, "error")
